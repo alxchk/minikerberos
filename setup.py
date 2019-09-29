@@ -27,7 +27,7 @@ setup(
 	description="Kerberos manipulation library in pure Python",
 
 	# long_description=open("README.txt").read(),
-	python_requires='>=3.6',
+	python_requires='>=2.7',
 	classifiers=(
 		"Programming Language :: Python :: 3.6",
 		"License :: OSI Approved :: MIT License",
