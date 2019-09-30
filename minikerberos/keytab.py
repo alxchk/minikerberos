@@ -3,15 +3,18 @@
 ##
 # Be careful using this parser/writer! The specifications in the MIT Kerberos's official page doesnt match with the file Windows server generates!!
 # Thus this script is to support Windows generated keytabs, not sure about MIT's
+
+from __future__ import unicode_literals
+
 import io
 import struct
 
 
 class KeytabPrincipal(object):
-	__slots__ = (
-		'num_components', 'name_type',
-		'realm', 'components'
-	)
+    __slots__ = (
+        'num_components', 'name_type',
+        'realm', 'components'
+    )
 
     def __init__(self):
         self.num_components = None
@@ -61,7 +64,7 @@ class KeytabPrincipal(object):
         p = KeytabPrincipal()
         p.num_components, = struct.unpack('>H', buffer.read(2))
         p.realm = KeytabOctetString.parse(buffer)
-    
+
         for i in range(p.num_components):
             p.components.append(KeytabOctetString.parse(buffer))
 
@@ -225,7 +228,7 @@ class Keytab(object):
 
         k = Keytab()
         k.krb5, k.version = struct.unpack('BB', buffer.read(2))
-    
+
         i = 0
         while i < buffer_size:
             entry_size, = struct.unpack('>I', buffer.read(4))
