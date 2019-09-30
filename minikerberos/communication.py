@@ -334,11 +334,11 @@ class KerbrosComm(object):
             if decrypt_tgt == False:
                 return
 
-            self.kerberos_cipher = _enctype_table[23]
+            self.kerberos_cipher = _get_enctype_profile[23]
             self.kerberos_cipher_type = 23
-            self.kerberos_key = Key(self.kerberos_cipher.enctype, self.usercreds.get_key_for_enctype(
-                EncryptionType.ARCFOUR_HMAC_MD5))
-
+            self.kerberos_key = Key(
+                self.kerberos_cipher.enctype, self.usercreds.get_key_for_enctype(
+                    EncryptionType.ARCFOUR_HMAC_MD5))
         else:
             if rep.native['error-code'] != KerberosErrorCode.KDC_ERR_PREAUTH_REQUIRED.value:
                 raise KerberosError(rep)
@@ -387,9 +387,12 @@ class KerbrosComm(object):
             'forwardable', 'renewable', 'renewable_ok', 'canonicalize'
         ]))
         kdc_req_body['realm'] = as_str(spn_user.domain.upper())
+
+        logger.debug('TGS principal: %s', spn_user.get_principalname())
+
         kdc_req_body['sname'] = PrincipalName({
             'name-type': NAME_TYPE.SRV_INST.value,
-            'name-string': spn_user.get_principalname()
+            'name-string': as_str(spn_user.get_principalname())
         })
         kdc_req_body['till'] = now + datetime.timedelta(days=1)
         kdc_req_body['nonce'], = struct.unpack('>i', os.urandom(4))
@@ -401,7 +404,8 @@ class KerbrosComm(object):
         authenticator_data = {}
         authenticator_data['authenticator-vno'] = krb5_pvno
         authenticator_data['crealm'] = Realm(
-            as_str_(self.kerberos_TGT['crealm']))
+            as_str(self.kerberos_TGT['crealm'])
+        )
         authenticator_data['cname'] = self.kerberos_TGT['cname']
         authenticator_data['cusec'] = now.microsecond
         authenticator_data['ctime'] = now
@@ -453,8 +457,10 @@ class KerbrosComm(object):
         encTGSRepPart = EncTGSRepPart.load(
             self.kerberos_cipher.decrypt(
                 self.kerberos_session_key, 8, tgs['enc-part']['cipher'])).native
-        key = Key(encTGSRepPart['key']['keytype'],
-                  encTGSRepPart['key']['keyvalue'])
+        key = Key(
+            encTGSRepPart['key']['keytype'],
+            encTGSRepPart['key']['keyvalue']
+        )
 
         self.ccache.add_tgs(tgs, encTGSRepPart)
         logger.debug('Got valid TGS reply')

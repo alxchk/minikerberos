@@ -61,22 +61,30 @@ try:
     range = xrange
 
     def as_str(data):
-        if isinstance(data, str):
+        if isinstance(data, (list, tuple)):
+            return list(
+                as_str(x) for x in data
+            )
+        elif isinstance(data, str):
             return data.decode('latin-1')
         elif isinstance(data, unicode):
             return data
         else:
-            raise ValueError('Unexpected type')
+            raise ValueError('Unexpected type (%s)' % type(data))
 
     def as_bytes(data):
-        if isinstance(data, int):
+        if isinstance(data, (list, tuple)):
+            return list(
+                as_bytes(x) for x in data
+            )
+        elif isinstance(data, int):
             return chr(data)
         elif isinstance(data, unicode):
             return data.encode('latin-1')
         elif isinstance(data, str):
             return data
         else:
-            raise ValueError('Unexpected type')
+            raise ValueError('Unexpected type (%s)' % type(data))
 
     def as_hex(data):
         if isinstance(data, int):
@@ -84,7 +92,7 @@ try:
         elif isinstance(data, str):
             return str.encode('hex')
         else:
-            raise ValueError('Unexpected type')
+            raise ValueError('Unexpected type (%s)' % type(data))
 
 except NameError:
     NotImplementedError()
