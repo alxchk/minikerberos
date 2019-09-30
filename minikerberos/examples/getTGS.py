@@ -39,7 +39,6 @@ def main():
 	target.service = service
 	target.domain = domain
 	
-	
 	if not ccred.ccache:
 		logging.debug('Getting TGT')
 		kc = KerbrosComm(ccred, ksoc)

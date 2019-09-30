@@ -42,30 +42,38 @@
 # Original code was taken from impacket, ported to python3 by Tamas Jos (@skelsec)
 
 from struct import pack, unpack
-from binascii import unhexlify
+
 import string
 import random
 import functools
 import os
+import enum
 
-from math import gcd
 import hmac as HMAC
 import hashlib
-from hashlib import md5 as MD5
-from hashlib import sha1 as SHA
-from .crypto.PBKDF2.pbkdf2 import pbkdf2 as PBKDF2
-from .crypto.AES import *
-from .crypto.DES import DES3, DES_CBC, DES_ECB
-from .crypto.RC4 import RC4 as ARC4
-from .crypto.DES import DES
+
+from Crypto.Protocol.KDF import PBKDF2
+from Crypto.Hash import MD5, SHA1
+from Crypto.Util.number import GCD
+from Crypto.Cipher import (
+	AES, DES, DES3, ARC4
+)
+
+try:
+	range = xrange
+	_ord = ord
+	_chr = chr
+
+except NameError:
+	_ord = int
+	_chr = int
 
 
 def get_random_bytes(lenBytes):
-	# We don't really need super strong randomness here to use PyCrypto.Random
 	return os.urandom(lenBytes)
 
 
-class Enctype(object):
+class Enctype(enum.Enum):
 	DES_CRC = 1
 	DES_MD4 = 2
 	DES_MD5 = 3
@@ -75,7 +83,7 @@ class Enctype(object):
 	RC4 = 23
 
 
-class Cksumtype(object):
+class Cksumtype(enum.Enum):
 	CRC32 = 1
 	MD4 = 2
 	MD4_DES = 3
@@ -99,20 +107,23 @@ def _zeropad(s, padsize):
 
 
 def _xorbytes(b1, b2):
-	# xor two strings together and return the resulting string.
-	assert len(b1) == len(b2)
-	t1 = int.from_bytes(b1, byteorder = 'big', signed = False)
-	t2 = int.from_bytes(b2, byteorder = 'big', signed = False)
-	return (t1 ^ t2).to_bytes(len(b1), byteorder = 'big', signed = False)
+    result = bytearray(b1)
+    for i, b in enumerate(b2):
+        result[i] ^= _ord(b)
+    return bytes(result)
 
 
 def _mac_equal(mac1, mac2):
 	# Constant-time comparison function.  (We can't use HMAC.verify
 	# since we use truncated macs.)
 	assert len(mac1) == len(mac2)
+
+	print mac1.encode('hex')
+	print mac2.encode('hex')
+
 	res = 0
 	for x, y in zip(mac1, mac2):
-		res |= x ^ y
+		res |= _ord(x) ^ _ord(y)
 	return res == 0
 
 
@@ -121,29 +132,55 @@ def _nfold(str, nbytes):
 	# operation.
 
 	# Rotate the bytes in str to the right by nbits bits.
-	def rotate_right(str, nbits):
-		num = int.from_bytes(str, byteorder ='big', signed = False)
-		size = len(str)*8
-		nbits %= size
-		body = num >> nbits
-		remains = (num << (size - nbits)) - (body << size)
-		return (body + remains).to_bytes(len(str), byteorder ='big', signed = False)
+	def rotate_right(data, nbits):
+		start_data = data
+		start_bits = nbits
 
+		total_len = len(data) * 8
+		nbits %= total_len
+
+		if nbits >= 8:
+			full_bytes = nbits // 8
+			data = data[-full_bytes:] + data[:-full_bytes]
+			nbits -= (full_bytes * 8)
 		
+		if nbits == 0:
+			return data
+
+		total_len = len(data)
+
+		remainders = []
+		portions = []
+
+		mask = (1 << nbits) - 1
+
+		for b in data:
+			asint = _ord(b)
+			remainders.append(asint & mask)
+			portions.append(asint >> nbits)
+		
+		remainders.insert(0, remainders.pop())
+
+		result = b''.join(
+			pack('>B', (remainder << (8 - nbits)) | portion)
+			for remainder, portion in zip(remainders, portions)
+		)[-total_len:]
+		return result
 
 	# Add equal-length strings together with end-around carry.
 	def add_ones_complement(str1, str2):
 		n = len(str1)
 		v = []
-		for i in range(0,len(str1), 1):
-			t = str1[i] + str2[i]
+		for i in range(0, len(str1), 1):
+			t = unpack('B', str1[i])[0] + unpack('B', str2[i])[0]
 			v.append(t)
-		
-		#v = [ord(a) + ord(b) for a, b in zip(str1, str2)]
+
+		# v = [ord(a) | ord(b) for a, b in zip(str1, str2)]
 		# Propagate carry bits to the left until there aren't any left.
+
 		while any(x & ~0xff for x in v):
 			v = [(v[i-n+1]>>8) + (v[i]&0xff) for i in range(n)]
-		return b''.join(x.to_bytes(1, byteorder = 'big', signed = False) for x in v)
+		return b''.join(pack('B', x) for x in v)
 
 	# Concatenate copies of str to produce the least common multiple
 	# of len(str) and nbytes, rotating each copy of str to the right
@@ -151,30 +188,32 @@ def _nfold(str, nbytes):
 	# into slices of length nbytes, and add them together as
 	# big-endian ones' complement integers.
 	slen = len(str)
-	lcm = int(nbytes * slen / gcd(nbytes, slen))
+	lcm = int(nbytes * slen / GCD(nbytes, slen))
 	bigstr = b''.join((rotate_right(str, 13 * i) for i in range(int(lcm / slen))))
 	slices = (bigstr[p:p+nbytes] for p in range(0, lcm, nbytes))
-	
+
 	return functools.reduce(add_ones_complement,  slices)
 
 
 def _is_weak_des_key(keybytes):
-	return keybytes in (b'\x01\x01\x01\x01\x01\x01\x01\x01',
-						b'\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE',
-						b'\x1F\x1F\x1F\x1F\x0E\x0E\x0E\x0E',
-						b'\xE0\xE0\xE0\xE0\xF1\xF1\xF1\xF1',
-						b'\x01\xFE\x01\xFE\x01\xFE\x01\xFE',
-						b'\xFE\x01\xFE\x01\xFE\x01\xFE\x01',
-						b'\x1F\xE0\x1F\xE0\x0E\xF1\x0E\xF1',
-						b'\xE0\x1F\xE0\x1F\xF1\x0E\xF1\x0E',
-						b'\x01\xE0\x01\xE0\x01\xF1\x01\xF1',
-						b'\xE0\x01\xE0\x01\xF1\x01\xF1\x01',
-						b'\x1F\xFE\x1F\xFE\x0E\xFE\x0E\xFE',
-						b'\xFE\x1F\xFE\x1F\xFE\x0E\xFE\x0E',
-						b'\x01\x1F\x01\x1F\x01\x0E\x01\x0E',
-						b'\x1F\x01\x1F\x01\x0E\x01\x0E\x01',
-						b'\xE0\xFE\xE0\xFE\xF1\xFE\xF1\xFE',
-						b'\xFE\xE0\xFE\xE0\xFE\xF1\xFE\xF1')
+	return keybytes in (
+		b'\x01\x01\x01\x01\x01\x01\x01\x01',
+		b'\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE',
+		b'\x1F\x1F\x1F\x1F\x0E\x0E\x0E\x0E',
+		b'\xE0\xE0\xE0\xE0\xF1\xF1\xF1\xF1',
+		b'\x01\xFE\x01\xFE\x01\xFE\x01\xFE',
+		b'\xFE\x01\xFE\x01\xFE\x01\xFE\x01',
+		b'\x1F\xE0\x1F\xE0\x0E\xF1\x0E\xF1',
+		b'\xE0\x1F\xE0\x1F\xF1\x0E\xF1\x0E',
+		b'\x01\xE0\x01\xE0\x01\xF1\x01\xF1',
+		b'\xE0\x01\xE0\x01\xF1\x01\xF1\x01',
+		b'\x1F\xFE\x1F\xFE\x0E\xFE\x0E\xFE',
+		b'\xFE\x1F\xFE\x1F\xFE\x0E\xFE\x0E',
+		b'\x01\x1F\x01\x1F\x01\x0E\x01\x0E',
+		b'\x1F\x01\x1F\x01\x0E\x01\x0E\x01',
+		b'\xE0\xFE\xE0\xFE\xF1\xFE\xF1\xFE',
+		b'\xFE\xE0\xFE\xE0\xFE\xF1\xFE\xF1'
+	)
 
 
 class _EnctypeProfile(object):
@@ -188,10 +227,14 @@ class _EnctypeProfile(object):
 	#   * decrypt
 	#   * prf
 
+	seedsize = 0
+	enctype = None
+
 	@classmethod
 	def random_to_key(cls, seed):
 		if len(seed) != cls.seedsize:
-			raise ValueError('Wrong seed length')
+			raise ValueError('Wrong seed length (%d != %d)' % (
+				len(seed), cls.seedsize))
 		return Key(cls.enctype, seed)
 
 
@@ -205,6 +248,22 @@ class _SimplifiedEnctype(_EnctypeProfile):
 	#   * hashmod: PyCrypto hash module for underlying hash function
 	#   * basic_encrypt, basic_decrypt: Underlying CBC/CTS cipher
 
+	blocksize = 0
+	macsize = 0
+	padsize = 0
+
+	@classmethod
+	def hashmod(cls, data):
+		raise NotImplementedError()
+	
+	@classmethod
+	def basic_encrypt(cls, key, data):
+		raise NotImplementedError()
+
+	@classmethod
+	def basic_decrypt(cls, key, data):
+		raise NotImplementedError()
+
 	@classmethod
 	def derive(cls, key, constant):
 		# RFC 3961 only says to n-fold the constant only if it is
@@ -212,12 +271,15 @@ class _SimplifiedEnctype(_EnctypeProfile):
 		# implementations n-fold constants if their length is larger
 		# than the block size as well, and n-folding when the length
 		# is equal to the block size is a no-op.
+
 		plaintext = _nfold(constant, cls.blocksize)
 		rndseed = b''
+
 		while len(rndseed) < cls.seedsize:
 			ciphertext = cls.basic_encrypt(key, plaintext)
 			rndseed += ciphertext
 			plaintext = ciphertext
+
 		return cls.random_to_key(rndseed[0:cls.seedsize])
 
 	@classmethod
@@ -242,6 +304,7 @@ class _SimplifiedEnctype(_EnctypeProfile):
 		basic_plaintext = cls.basic_decrypt(ke, basic_ctext)
 		hmac = HMAC.new(ki.contents, basic_plaintext, cls.hashmod).digest()
 		expmac = hmac[:cls.macsize]
+
 		if not _mac_equal(mac, expmac):
 			raise InvalidChecksum('ciphertext integrity failure')
 		# Discard the confounder.
@@ -251,11 +314,14 @@ class _SimplifiedEnctype(_EnctypeProfile):
 	def prf(cls, key, string):
 		# Hash the input.  RFC 3961 says to truncate to the padding
 		# size, but implementations truncate to the block size.
-		hashval = cls.hashmod(string).digest()
+		halg = cls.hashmod.new()
+		halg.update(string)
+		hashval = halg.digest()
 		truncated = hashval[:-(len(hashval) % cls.blocksize)]
 		# Encrypt the hash with a derived key.
 		kp = cls.derive(key, b'prf')
 		return cls.basic_encrypt(kp, truncated)
+
 
 class _DESCBC(_SimplifiedEnctype):
 	enctype = Enctype.DES_MD5
@@ -270,115 +336,132 @@ class _DESCBC(_SimplifiedEnctype):
 	def encrypt(cls, key, keyusage, plaintext, confounder):
 		if confounder is None:
 			confounder = get_random_bytes(cls.blocksize)
-		basic_plaintext = confounder + '\x00'*cls.macsize + _zeropad(plaintext, cls.padsize)
+		basic_plaintext = confounder + '\x00'*cls.macsize + _zeropad(
+			plaintext, cls.padsize)
+
 		checksum = cls.hashmod.new(basic_plaintext).digest()
-		basic_plaintext = basic_plaintext[:len(confounder)] + checksum + basic_plaintext[len(confounder)+len(checksum):]
+
+		basic_plaintext = b''.join([
+			basic_plaintext[:len(confounder)],
+			checksum,
+			basic_plaintext[len(confounder)+len(checksum):]
+		])
+	
 		return cls.basic_encrypt(key, basic_plaintext)
-		
-		
+
 	@classmethod
 	def decrypt(cls, key, keyusage, ciphertext):
 		if len(ciphertext) < cls.blocksize + cls.macsize:
 			raise ValueError('ciphertext too short')
-		
+
 		complex_plaintext = cls.basic_decrypt(key, ciphertext)
 		cofounder = complex_plaintext[:cls.padsize]
 		mac = complex_plaintext[cls.padsize:cls.padsize+cls.macsize]
 		message = complex_plaintext[cls.padsize+cls.macsize:]
-		
+
 		expmac = cls.hashmod.new(cofounder+'\x00'*cls.macsize+message).digest()
 		if not _mac_equal(mac, expmac):
 			raise InvalidChecksum('ciphertext integrity failure')
+
 		return message
-	
+
 	@classmethod
 	def mit_des_string_to_key(cls,string,salt):
-	
 		def fixparity(deskey):
-			temp = b''
+			temp = []
+
 			for byte in deskey:
-				t = (bin(byte)[2:]).rjust(8,'0')
-				if t[:7].count('1') %2 == 0:
-					temp+= int(t[:7]+'1',2).to_bytes(1, byteorder = 'big', signed = False)
+				t = bin(_ord(byte))[2:].rjust(8, '0')
+				if t[:7].count('1') % 2 == 0:
+					temp.append(pack('B', int(t[:7]+'1', 2)))
 				else:
-					temp+= int(t[:7]+'0',2).to_bytes(1, byteorder = 'big', signed = False)
-			return temp
-	
+					temp.append(pack('B', int(t[:7]+'0', 2)))
+
+			return b''.join(temp)
+
 		def addparity(l1):
-			temp = list()
+			temp = []
 			for byte in l1:
 				if (bin(byte).count('1') % 2) == 0:
-					byte = (byte << 1)|0b00000001
+					byte = (byte << 1) | 0b00000001
 				else:
-					byte = (byte << 1)&0b11111110
+					byte = (byte << 1) & 0b11111110
 				temp.append(byte)
+
 			return temp
-		
-		def XOR(l1,l2):
+
+		def XOR(l1, l2):
 			temp = list()
-			for b1,b2 in zip(l1,l2):
-				temp.append((b1^b2)&0b01111111)
-			
+			for b1,b2 in zip(l1, l2):
+				temp.append((b1^b2) & 0b01111111)
+
 			return temp
-		
+
 		odd = True
 		s = string + salt
-		tempstring = [0,0,0,0,0,0,0,0]
-		s = s + b'\x00'*( 8- (len(s)%8)) #pad(s); /* with nulls to 8 byte boundary */
-		
+		tempstring = [0, 0, 0, 0, 0, 0, 0, 0]
+		s = s + b'\x00'*(8 - (len(s) % 8))
+
 		for block in [s[i:i+8] for i in range(0, len(s), 8)]:
 			temp56 = list()
 			#removeMSBits
 			for byte in block:
-				temp56.append(byte&0b01111111)
-			
+				temp56.append(_ord(byte) & 0b01111111)
+
 			#reverse
 			if odd == False:
 				bintemp = ''
 				for byte in temp56:
 					bintemp += (bin(byte)[2:]).rjust(7,'0')
 				bintemp = bintemp[::-1]
-				
+
 				temp56 = list()
 				for bits7 in [bintemp[i:i+7] for i in range(0, len(bintemp), 7)]:
 					temp56.append(int(bits7,2))
 
 			odd = not odd
-				
+
 			tempstring = XOR(tempstring,temp56)
-		
-		tempkey = b''.join(byte.to_bytes(1, byteorder = 'big', signed = False) for byte in addparity(tempstring))
+
+		tempkey = b''.join(pack('B', byte) for byte in addparity(tempstring))
 		if _is_weak_des_key(tempkey):
-			tempkey[7] = (tempkey[7] ^ 0xF0).to_bytes(1, byteorder = 'big', signed = False)
-		
-		cipher = DES(tempkey, DES_CBC, tempkey)
+			tempkey = b''.join([
+				tempkey[:7],
+				pack('B', tempkey[7] ^ 0xF0),
+				tempkey[8:]
+			])
+
+		cipher = DES.new(tempkey, DES.MODE_CBC, iv=tempkey)
 		chekcsumkey = cipher.encrypt(s)[-8:]
 		chekcsumkey = fixparity(chekcsumkey)
 		if _is_weak_des_key(chekcsumkey):
-			chekcsumkey[7] = chr(ord(chekcsumkey[7]) ^ 0xF0)
-		
+			chekcsumkey = b''.join([
+				chekcsumkey[:7],
+				pack('B', chekcsumkey[7] ^ 0xF0),
+				chekcsumkey[8:]
+			])
+
 		return Key(cls.enctype, chekcsumkey)
 
 	@classmethod
 	def basic_encrypt(cls, key, plaintext):
 		assert len(plaintext) % 8 == 0
-		des = DES(key.contents, DES_CBC, b'\x00' * 8)
+		des = DES.new(key.contents, DES.MODE_CBC, iv=b'\x00' * 8)
 		return des.encrypt(plaintext)
 
 	@classmethod
 	def basic_decrypt(cls, key, ciphertext):
 		assert len(ciphertext) % 8 == 0
-		des = DES(key.contents, DES_CBC, b'\x00' * 8)
-		return des.decrypt(ciphertext)		
-	
+		des = DES.new(key.contents, DES.MODE_CBC, iv=b'\x00' * 8)
+		return des.decrypt(ciphertext)
+
 	@classmethod
 	def string_to_key(cls, string, salt, params):
 		if params is not None and params != '':
 			raise ValueError('Invalid DES string-to-key parameters')
 		key = cls.mit_des_string_to_key(string, salt)
 		return key
-	
-	
+
 
 class _DES3CBC(_SimplifiedEnctype):
 	enctype = Enctype.DES3
@@ -387,7 +470,7 @@ class _DES3CBC(_SimplifiedEnctype):
 	blocksize = 8
 	padsize = 8
 	macsize = 20
-	hashmod = SHA
+	hashmod = SHA1
 
 	@classmethod
 	def random_to_key(cls, seed):
@@ -400,15 +483,21 @@ class _DES3CBC(_SimplifiedEnctype):
 				b &= ~1
 				return b if bin(b & ~1).count('1') % 2 else b | 1
 			assert len(seed) == 7
-			firstbytes = [parity(b & ~1) for b in seed]
-			lastbyte = parity(sum((seed[i]&1) << i+1 for i in range(7)))
-			keybytes = b''.join(b.to_bytes(1, byteorder = 'big', signed = False) for b in firstbytes + [lastbyte])
+			firstbytes = [parity(_ord(b) & ~1) for b in seed]
+			lastbyte = parity(sum((_ord(seed[i]) & 1) << i+1 for i in range(7)))
+			keybytes = b''.join(pack('B', b) for b in firstbytes + [lastbyte])
 			if _is_weak_des_key(keybytes):
-				keybytes[7] = (keybytes[7] ^ 0xF0).to_bytes(1, byteorder = 'big', signed = False)
+				keybytes = b''.join([
+					keybytes[:7],
+					pack('B', keybytes[7] ^ 0xF0),
+					keybytes[8:]
+				])
+
 			return keybytes
-		
+
 		if len(seed) != 21:
 			raise ValueError('Wrong seed length')
+
 		k1, k2, k3 = expand(seed[:7]), expand(seed[7:14]), expand(seed[14:])
 		return Key(cls.enctype, k1 + k2 + k3)
 
@@ -422,13 +511,13 @@ class _DES3CBC(_SimplifiedEnctype):
 	@classmethod
 	def basic_encrypt(cls, key, plaintext):
 		assert len(plaintext) % 8 == 0
-		des3 = DES3(key.contents, DES_CBC, IV = b'\x00' * 8)
+		des3 = DES3.new(key.contents, DES.MODE_CBC, iv=b'\x00' * 8)
 		return des3.encrypt(plaintext)
 
 	@classmethod
 	def basic_decrypt(cls, key, ciphertext):
 		assert len(ciphertext) % 8 == 0
-		des3 = DES3(key.contents, DES_CBC, IV = b'\x00' * 8)
+		des3 = DES3.new(key.contents, DES.MODE_CBC, iv=b'\x00' * 8)
 		return des3.decrypt(ciphertext)
 
 
@@ -437,21 +526,20 @@ class _AESEnctype(_SimplifiedEnctype):
 	blocksize = 16
 	padsize = 1
 	macsize = 12
-	hashmod = SHA
+	hashmod = SHA1
 
 	@classmethod
 	def string_to_key(cls, string, salt, params):
-		(iterations,) = unpack('>L', params or b'\x00\x00\x10\x00')
+		iterations, = unpack('>L', params or b'\x00\x00\x10\x00')
 		#prf = lambda p, s: HMAC.new(p, s, SHA).digest()
-		#seed = PBKDF2(string, salt, cls.seedsize, iterations, prf)
-		seed = PBKDF2(string, salt, iterations, cls.seedsize)
+		seed = PBKDF2(string, salt, cls.seedsize, iterations)
 		tkey = cls.random_to_key(seed)
 		return cls.derive(tkey, 'kerberos'.encode())
 
 	@classmethod
 	def basic_encrypt(cls, key, plaintext):
 		assert len(plaintext) >= 16
-		aes = AESModeOfOperationCBC(key.contents, b'\x00' * 16)
+		aes = AES.new(key.contents, AES.MODE_CBC, iv=b'\x00' * 16)
 		ctext = aes.encrypt(_zeropad(plaintext, 16))
 		if len(plaintext) > 16:
 			# Swap the last two ciphertext blocks and truncate the
@@ -463,9 +551,11 @@ class _AESEnctype(_SimplifiedEnctype):
 	@classmethod
 	def basic_decrypt(cls, key, ciphertext):
 		assert len(ciphertext) >= 16
-		aes = AESModeOfOperationECB(key.contents)
+		aes = AES.new(key.contents, AES.MODE_ECB)
+
 		if len(ciphertext) == 16:
 			return aes.decrypt(ciphertext)
+
 		# Split the ciphertext into blocks.  The last block may be partial.
 		cblocks = [ciphertext[p:p+16] for p in range(0, len(ciphertext), 16)]
 		lastlen = len(cblocks[-1])
@@ -526,7 +616,7 @@ class _RC4(_EnctypeProfile):
 		ki = HMAC.new(key.contents, cls.usage_str(keyusage), MD5).digest()
 		cksum = HMAC.new(ki, confounder + plaintext, MD5).digest()
 		ke = HMAC.new(ki, cksum, MD5).digest()
-		return cksum + ARC4(ke).encrypt(confounder + plaintext)
+		return cksum + ARC4.new(ke).encrypt(confounder + plaintext)
 
 	@classmethod
 	def decrypt(cls, key, keyusage, ciphertext):
@@ -535,7 +625,7 @@ class _RC4(_EnctypeProfile):
 		cksum, basic_ctext = ciphertext[:16], ciphertext[16:]
 		ki = HMAC.new(key.contents, cls.usage_str(keyusage), MD5).digest()
 		ke = HMAC.new(ki, cksum, MD5).digest()
-		basic_plaintext = ARC4(ke).decrypt(basic_ctext)
+		basic_plaintext = ARC4.new(ke).decrypt(basic_ctext)
 		exp_cksum = HMAC.new(ki, basic_plaintext, MD5).digest()
 		ok = _mac_equal(cksum, exp_cksum)
 		if not ok and keyusage == 9:
@@ -550,7 +640,7 @@ class _RC4(_EnctypeProfile):
 
 	@classmethod
 	def prf(cls, key, string):
-		return HMAC.new(key.contents, string, SHA).digest()
+		return HMAC.new(key.contents, string, SHA1).digest()
 
 
 class _ChecksumProfile(object):
@@ -604,7 +694,7 @@ class _HMACMD5(_ChecksumProfile):
 	@classmethod
 	def checksum(cls, key, keyusage, text):
 		ksign = HMAC.new(key.contents, b'signaturekey\x00', MD5).digest()
-		md5hash = MD5(_RC4.usage_str(keyusage) + text).digest()
+		md5hash = MD5.new(_RC4.usage_str(keyusage) + text).digest()
 		return HMAC.new(ksign, md5hash, MD5).digest()
 
 	@classmethod
@@ -612,6 +702,10 @@ class _HMACMD5(_ChecksumProfile):
 		if key.enctype != Enctype.RC4:
 			raise ValueError('Wrong key type for checksum')
 		super(_HMACMD5, cls).verify(key, keyusage, text, cksum)
+
+
+def hmac_md5(key):
+	return HMAC.new(key, digestmod=MD5)
 
 
 _enctype_table = {
@@ -703,7 +797,7 @@ def cf2(enctype, key1, key2, pepper1, pepper2):
 		out = b''
 		count = 1
 		while len(out) < l:
-			out += prf(key, count.to_bytes(1, byteorder='big', signed = False) + pepper)
+			out += prf(key, pack('B', count) + pepper)
 			count += 1
 		return out[:l]
 
@@ -713,8 +807,7 @@ def cf2(enctype, key1, key2, pepper1, pepper2):
 
 
 if __name__ == '__main__':
-	def h(hexstr):
-		return unhexlify(hexstr)
+	from binascii import unhexlify as h
 
 	# AES128 encrypt and decrypt
 	kb = h('9062430C8CDA3388922E6D6A509F5B7A')
@@ -724,6 +817,7 @@ if __name__ == '__main__':
 	ctxt = h('68FB9679601F45C78857B2BF820FD6E53ECA8D42FD4B1D7024A09205ABB7CD2E'
 			 'C26C355D2F')
 	k = Key(Enctype.AES128, kb)
+
 	assert(encrypt(k, keyusage, plain, conf) == ctxt)
 	assert(decrypt(k, keyusage, ctxt) == plain)
 
@@ -865,7 +959,7 @@ if __name__ == '__main__':
 	kb = h('cbc22fae235298e3')
 	k = string_to_key(Enctype.DES_MD5, string, salt)
 	assert(k.contents == kb)
-	
+
 	# DES string-to-key
 	string = 'potatoe'.encode()
 	salt = 'WHITEHOUSE.GOVdanny'.encode()
@@ -873,5 +967,5 @@ if __name__ == '__main__':
 	k = string_to_key(Enctype.DES_MD5, string, salt)
 	assert(k.contents == kb)
 	print('all tests passed!')
-	
-	
+
+

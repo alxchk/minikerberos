@@ -22,13 +22,13 @@ krb5_pvno = 5 #-- current Kerberos protocol version number
 """
 class NegotiationToken(core.Choice):
 	_alternatives = [
-		#('NegTokenInit2', NegTokenInit2, {'implicit': (0,16) }  ), #NegTokenInit2 the '2' in the name is because Microsoft added modifications to the original rfc :)
-		('NegTokenInit2', NegTokenInit2, {'implicit': (0,16) }  ), #NegTokenInit2 the '2' in the name is because Microsoft added modifications to the original rfc :)
+		#NegTokenInit2 the '2' in the name is because Microsoft added modifications to the original rfc :)
+		#('NegTokenInit2', NegTokenInit2, {'implicit': (0,16) }  ),
+		('NegTokenInit2', NegTokenInit2, {'implicit': (0,16) }  ),
 		('negTokenResp', negTokenResp, {'explicit': (2,1) } ),
-		
 ]
 """
-	
+
 class PADATA_TYPE(core.Enumerated):
 	_map = {
 		0   : 'NONE', #(0),
@@ -93,7 +93,7 @@ class PADATA_TYPE(core.Enumerated):
 		165 : 'SUPPORTED-ETYPES', #(165)	-- MS-KILE
 		167 : 'PA-PAC-OPTIONS',
 	}
-	
+
 class AUTHDATA_TYPE(core.Enumerated):
 	_map = {
 		1 : 'IF-RELEVANT', #1),
@@ -167,14 +167,17 @@ class ENCTYPE(core.Enumerated):
 		-0x1004 : 'DIGEST_MD5_NONE', #-0x1004),		-- private use, lukeh@padl.com
 		-0x1005 : 'CRAM_MD5_NONE', #-0x1005)		-- private use, lukeh@padl.com
 	}
-	
+
+
 class SequenceOfEnctype(core.SequenceOf):
 	_child_spec = core.Integer
+
 
 class Microseconds(core.Integer):
 	"""    ::= INTEGER (0..999999)
 	-- microseconds
-    """      
+    """
+
 class krb5int32 (core.Integer):
     """krb5int32  ::= INTEGER (-2147483648..2147483647)
     """
@@ -184,22 +187,25 @@ class krb5uint32 (core.Integer):
     """krb5uint32  ::= INTEGER (0..4294967295)
     """
 
+
 class KerberosString(core.GeneralString):
 	"""KerberosString ::= GeneralString (IA5String)
 	For compatibility, implementations MAY choose to accept GeneralString
 	values that contain characters other than those permitted by
 	IA5String...
 	"""
-	
+
+
 class SequenceOfKerberosString(core.SequenceOf):
 	_child_spec = KerberosString
-	
+
+
 # https://github.com/tiran/kkdcpasn1/blob/asn1crypto/pykkdcpasn1.py
 class Realm(KerberosString):
 	"""Realm ::= KerberosString
 	"""
 
-	
+
 # https://github.com/tiran/kkdcpasn1/blob/asn1crypto/pykkdcpasn1.py
 class PrincipalName(core.Sequence):
 	"""PrincipalName for KDC-REQ-BODY and Ticket
@@ -212,19 +218,19 @@ class PrincipalName(core.Sequence):
 		('name-type', krb5int32, {'tag_type': TAG, 'tag': 0}),
 		('name-string', SequenceOfKerberosString, {'tag_type': TAG, 'tag': 1}),
 	]
-	
-	
+
+
 class Principal(core.Sequence):
 	_fields = [
 		('name', PrincipalName, {'tag_type': TAG, 'tag': 0}),
 		('realm', Realm, {'tag_type': TAG, 'tag': 1}),
 	]
 
-	
+
 class Principals(core.SequenceOf):
 	_child_spec = Principal
 
-	
+
 class HostAddress(core.Sequence):
     """HostAddress for HostAddresses
     HostAddress ::= SEQUENCE {
@@ -242,25 +248,25 @@ class HostAddresses(core.SequenceOf):
 	"""SEQUENCE OF HostAddress
 	"""
 	_child_spec = HostAddress
-	
-	
+
+
 class KerberosTime(core.GeneralizedTime):
     """KerberosTime ::= GeneralizedTime
     """
 
-	
+
 class AuthorizationDataElement(core.Sequence):
 	_fields = [
         ('ad-type', krb5int32, {'tag_type': TAG, 'tag': 0}),
         ('ad-data', core.OctetString, {'tag_type': TAG, 'tag': 1}),
 	]
 
-	
+
 class AuthorizationData(core.SequenceOf):
 	"""SEQUENCE OF HostAddress
 	"""
 	_child_spec = AuthorizationDataElement
-	
+
 
 class APOptions(core.BitString):
 	_map = {
@@ -269,7 +275,7 @@ class APOptions(core.BitString):
 		2 : 'mutual-required', #(2)
 	}
 
-	
+
 class TicketFlags(core.BitString):
 	_map = {
 		0: 'reserved',
@@ -307,7 +313,7 @@ class KDCOptions(core.BitString):
 		11: 'opt-hardware-auth',
 		12: 'unused12',
 		13: 'unused13',
-		14: 'constrained-delegation', #-- cname-in-addl-tkt (14) 
+		14: 'constrained-delegation', #-- cname-in-addl-tkt (14)
 		15: 'canonicalize',
 		16: 'request-anonymous',
 		17: 'unused17',
@@ -337,12 +343,13 @@ class LR_TYPE(core.Enumerated):
 		6 : 'PW_EXPTIME', #6),	-- expiration time of password
 		7 : 'ACCT_EXPTIME', #7)	-- expiration time of account
 	}
-	
+
 class LastReqInner(core.Sequence):
 	_fields = [
 		('lr-type', krb5int32, {'tag_type': TAG, 'tag': 0}), #LR_TYPE
 		('lr-value', KerberosTime, {'tag_type': TAG, 'tag': 1}),
 	]
+
 
 class LastReq(core.SequenceOf):
 	_child_spec = LastReqInner
@@ -364,7 +371,6 @@ class EncryptionKey(core.Sequence):
 
 
 #-- encoded Transited field
-
 class TransitedEncoding(core.Sequence):
 	_fields = [
 		('tr-type', krb5uint32, {'tag_type': TAG, 'tag': 0}), #-- must be registered
@@ -372,18 +378,18 @@ class TransitedEncoding(core.Sequence):
 	]
 
 
-
 # https://github.com/tiran/kkdcpasn1/blob/asn1crypto/pykkdcpasn1.py
 class Ticket(core.Sequence):
 	explicit = (APPLICATION,1)
-	
+
 	_fields = [
 		('tkt-vno', krb5int32, {'tag_type': TAG, 'tag': 0}),
 		('realm', Realm, {'tag_type': TAG, 'tag': 1}),
 		('sname', PrincipalName, {'tag_type': TAG, 'tag': 2}),
 		('enc-part', EncryptedData, {'tag_type': TAG, 'tag': 3}), #EncTicketPart
 	]
-	
+
+
 class SequenceOfTicket(core.SequenceOf):
 	"""SEQUENCE OF Ticket for KDC-REQ-BODY
 	"""
@@ -393,7 +399,7 @@ class SequenceOfTicket(core.SequenceOf):
 #-- Encrypted part of ticket
 class EncTicketPart(core.Sequence):
 	explicit = (APPLICATION, 3)
-	
+
 	_fields = [
 		('flags', TicketFlags, {'tag_type': TAG, 'tag': 0}),
 		('key', EncryptionKey, {'tag_type': TAG, 'tag': 1}),
@@ -417,8 +423,8 @@ class Checksum(core.Sequence):
 
 
 class Authenticator(core.Sequence):
-	explicit = (APPLICATION,2)
-	
+	explicit = (APPLICATION, 2)
+
 	_fields = [
 		('authenticator-vno', krb5int32, {'tag_type': TAG, 'tag': 0}),
 		('crealm', Realm, {'tag_type': TAG, 'tag': 1}),
@@ -437,13 +443,15 @@ class PA_DATA(core.Sequence): #!!!! IT STARTS AT ONE!!!!
 		('padata-type', core.Integer, {'tag_type': TAG, 'tag': 1}),
 		('padata-value', core.OctetString, {'tag_type': TAG, 'tag': 2}),
 	]
-	
+
+
 class ETYPE_INFO_ENTRY(core.Sequence):
 	_fields = [
 		('etype', krb5int32, {'tag_type': TAG, 'tag': 0}),
 		('salt', core.OctetString, {'tag_type': TAG, 'tag': 1, 'optional': True}),
 		('salttype', krb5int32, {'tag_type': TAG, 'tag': 2, 'optional': True}),
 	]
+
 
 class ETYPE_INFO(core.SequenceOf):
 	_child_spec = ETYPE_INFO_ENTRY
@@ -455,23 +463,24 @@ class ETYPE_INFO2_ENTRY(core.Sequence):
 		('salt', KerberosString, {'tag_type': TAG, 'tag': 1, 'optional': True}),
 		('s2kparams', core.OctetString, {'tag_type': TAG, 'tag': 2, 'optional': True}),
 	]
-	
+
+
 class ETYPE_INFO2(core.SequenceOf):
 	_child_spec = ETYPE_INFO2_ENTRY
+
 
 class METHOD_DATA(core.SequenceOf):
 	_child_spec = PA_DATA
 
 
 class TypedData(core.Sequence):
+	"""
+	class TYPED-DATA ::= SEQUENCE SIZE (1..MAX) OF TypedData
+	"""
 	_fields = [
 		('data-type', krb5int32, {'tag_type': TAG, 'tag': 0}),
 		('data-value', core.OctetString, {'tag_type': TAG, 'tag': 1, 'optional': True}),
 	]
-
-"""
-class TYPED-DATA ::= SEQUENCE SIZE (1..MAX) OF TypedData
-"""
 
 
 class KDC_REQ_BODY(core.Sequence):
@@ -488,8 +497,9 @@ class KDC_REQ_BODY(core.Sequence):
 		('addresses', HostAddresses , {'tag_type': TAG, 'tag': 9, 'optional': True}),
 		('enc-authorization-data', EncryptedData , {'tag_type': TAG, 'tag': 10, 'optional': True}), #-- Encrypted AuthorizationData encoding
 		('additional-tickets', SequenceOfTicket , {'tag_type': TAG, 'tag': 11, 'optional': True}),
-	
+
 	]
+
 
 class KDC_REQ(core.Sequence):
 	_fields = [
@@ -502,7 +512,8 @@ class KDC_REQ(core.Sequence):
 
 class AS_REQ(KDC_REQ):
 	explicit = (APPLICATION, 10)
-	
+
+
 class TGS_REQ(KDC_REQ):
 	explicit = (APPLICATION, 12)
 
@@ -518,13 +529,12 @@ class PA_PAC_OPTIONSTypes(core.BitString):
 			3: 'resource-based constrained delegation',
 		}
 
+
 class PA_PAC_OPTIONS(core.Sequence):
 	_fields = [
 		('value', PA_PAC_OPTIONSTypes, {'tag_type': TAG, 'tag': 0}),
 	]
-	
 
-	
 
 class PA_ENC_TS_ENC(core.Sequence):
 	_fields = [
@@ -537,6 +547,7 @@ class PA_PAC_REQUEST(core.Sequence):
 	_fields = [
 		('include-pac', core.Boolean, {'tag_type': TAG, 'tag': 0}), #-- Indicates whether a PAC should be included or not
 	]
+
 
 #-- PacketCable provisioning server location, PKT-SP-SEC-I09-030728.pdf
 class PROV_SRV_LOCATION(core.GeneralString):
@@ -553,16 +564,17 @@ class KDC_REP(core.Sequence):
 		('ticket', Ticket , {'tag_type': TAG, 'tag': 5}),
 		('enc-part', EncryptedData , {'tag_type': TAG, 'tag': 6}), #EncKDCRepPart
 	]
-	
+
 
 class AS_REP(KDC_REP):
 	#::= [APPLICATION 11] KDC-REP
 	explicit = (APPLICATION, 11)
-	
+
+
 class TGS_REP(KDC_REP): # ::= [APPLICATION 13] KDC-REP
 	explicit = (APPLICATION, 13)
-	
-	
+
+
 class EncKDCRepPart(core.Sequence):
 	_fields = [
 		('key', EncryptionKey, {'tag_type': TAG, 'tag': 0}),
@@ -580,11 +592,14 @@ class EncKDCRepPart(core.Sequence):
 		('encrypted-pa-data', METHOD_DATA , {'tag_type': TAG, 'tag': 12, 'optional': True}),
 	]
 
+
 class EncASRepPart(EncKDCRepPart):
 	explicit = (APPLICATION, 25)
-	
+
+
 class EncTGSRepPart(EncKDCRepPart):
 	explicit = (APPLICATION, 26)
+
 
 class AP_REQ(core.Sequence):
 	explicit = (APPLICATION, 14)
@@ -595,6 +610,7 @@ class AP_REQ(core.Sequence):
 		('ticket', Ticket , {'tag_type': TAG, 'tag': 3}),
 		('authenticator', EncryptedData , {'tag_type': TAG, 'tag': 4}),
 	]
+
 
 class AP_REP(core.Sequence):
 	explicit = (APPLICATION, 15)
@@ -641,7 +657,7 @@ class KRB_PRIV(core.Sequence):
 		('pvno', krb5int32, {'tag_type': TAG, 'tag': 0}),
 		('msg-type', krb5int32, {'tag_type': TAG, 'tag': 1}),#MESSAGE_TYPE
 		('enc-part', EncryptedData, {'tag_type': TAG, 'tag': 2}),
-	] 
+	]
 
 
 class EncKrbPrivPart(core.Sequence):
@@ -663,9 +679,9 @@ class KRB_CRED(core.Sequence):
 		('msg-type', core.Integer, {'tag_type': TAG, 'tag': 1}),
 		('tickets', SequenceOfTicket, {'tag_type': TAG, 'tag': 2}),
 		('enc-part', EncryptedData , {'tag_type': TAG, 'tag': 3}),
-	
+
 	]
-	
+
 # http://web.mit.edu/freebsd/head/crypto/heimdal/lib/asn1/krb5.asn1
 class KrbCredInfo(core.Sequence):
 	_fields = [
@@ -681,10 +697,10 @@ class KrbCredInfo(core.Sequence):
 		('sname', PrincipalName , {'tag_type': TAG, 'tag': 9, 'optional': True}),
 		('caddr', HostAddresses , {'tag_type': TAG, 'tag': 10, 'optional': True}),
 	]
-	
+
 class SequenceOfKrbCredInfo(core.SequenceOf):
 	_child_spec = KrbCredInfo
-	
+
 class EncKrbCredPart(core.Sequence):
 	explicit = (APPLICATION, 29)
 	_fields = [
@@ -726,37 +742,37 @@ class EtypeList(core.SequenceOf):
 	#-- decreasing preference order, favorite choice first
 	_child_spec = ENCTYPE
 
-	
+
 class KerberosResponse(core.Choice):
 	_alternatives = [
 		('AS_REP', AS_REP, {'implicit': (APPLICATION,11) }  ),
 		('TGS_REP', TGS_REP, {'implicit': (APPLICATION,13) }  ),
 		('KRB_ERROR', KRB_ERROR, {'implicit': (APPLICATION,30) } ),
 	]
-	
-	
+
+
 class KRBCRED(core.Sequence):
 	explicit = (APPLICATION, 22)
-	
+
 	_fields = [
 		('pvno', core.Integer, {'tag_type': TAG, 'tag': 0}),
 		('msg-type', core.Integer, {'tag_type': TAG, 'tag': 1}),
 		('tickets', SequenceOfTicket, {'tag_type': TAG, 'tag': 2}),
 		('enc-part', EncryptedData , {'tag_type': TAG, 'tag': 3}),
-	
+
 	]
 
 #https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-sfu/aceb70de-40f0-4409-87fa-df00ca145f5a
 #other name: PA-S4U2Self
-class PA_FOR_USER_ENC(core.Sequence): 
+class PA_FOR_USER_ENC(core.Sequence):
 	_fields = [
 		('userName', PrincipalName, {'tag_type': TAG, 'tag': 0}),
 		('userRealm', Realm, {'tag_type': TAG, 'tag': 1}),
 		('cksum', Checksum, {'tag_type': TAG, 'tag': 2}),
 		('auth-package', KerberosString , {'tag_type': TAG, 'tag': 3}),
-	
+
 	]
-	
+
 class S4UUserID(core.BitString):
 	_map = {
 		0x40000000 : 'check-logon-hour', #This option causes the KDC to check logon hour restrictions for the user.
@@ -773,19 +789,19 @@ class S4UUserID(core.Sequence):
 		('subject-certificate', core.OctetString, {'tag_type': TAG, 'tag': 3, 'optional' : True}),
 		('options', S4UUserID, {'tag_type': TAG, 'tag': 4, 'optional' : True}),
 	]
-	
+
 #https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-sfu/cd9d5ca7-ce20-4693-872b-2f5dd41cbff6
 class PA_S4U_X509_USER(core.Sequence):
 	_fields = [
 		('user-id', S4UUserID, {'tag_type': TAG, 'tag': 0}),
-		('checksum', Checksum, {'tag_type': TAG, 'tag': 1}),	
+		('checksum', Checksum, {'tag_type': TAG, 'tag': 1}),
 	]
 
 class AD_IF_RELEVANT(AuthorizationData):
 	pass
 
 
-#	
+#
 #DOMAIN-X500-COMPRESS	krb5int32 ::= 1
 #
 #-- authorization data primitives
@@ -866,11 +882,11 @@ class AD_IF_RELEVANT(AuthorizationData):
 #        cksum[2]	Checksum,
 #        auth[3]		GeneralString
 #}
-#	
-#	
-#	
-#	
-#	
+#
+#
+#
+#
+#
 #
 #
 #
@@ -908,7 +924,7 @@ class AD_IF_RELEVANT(AuthorizationData):
 #		('keyvalue', core.OctetString, {'tag_type': TAG, 'tag': 1}),
 #]
 #
-#	
+#
 #
 #
 #
@@ -922,14 +938,14 @@ class AD_IF_RELEVANT(AuthorizationData):
 #	_child_spec = Int32
 #
 #
-#	
+#
 #class SequenceOfKrbCredInfo(core.SequenceOf):
 #	_child_spec = KrbCredInfo
-#	
-#	
+#
+#
 #class EncKrbCredPart(core.Sequence):
 #	explicit = (1, 29)
-#	
+#
 #	_fields = [
 #		('ticket-info', SequenceOfKrbCredInfo, {'tag_type': TAG, 'tag': 0}),
 #		('nonce', Int32, {'tag_type': TAG, 'tag': 1, 'optional': True}),
@@ -938,6 +954,6 @@ class AD_IF_RELEVANT(AuthorizationData):
 #		('s-address', HostAddress , {'tag_type': TAG, 'tag': 4, 'optional': True}),
 #		('r-address', HostAddress , {'tag_type': TAG, 'tag': 5, 'optional': True}),
 #	]
-#	
+#
 #
 #

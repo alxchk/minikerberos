@@ -4,6 +4,7 @@
 # Be careful using this parser/writer! The specifications in the MIT Kerberos's official page doesnt match with the file Windows server generates!!
 # Thus this script is to support Windows generated keytabs, not sure about MIT's
 import io
+import struct
 
 
 class KeytabPrincipal(object):
@@ -36,48 +37,62 @@ class KeytabPrincipal(object):
         p.num_components = 1
         p.realm = KeytabOctetString.from_string('kerbi.corp')
         for i in range(1):
-            p.components.append(KeytabOctetString.from_string('kerbi'))
+            p.components.append(
+                KeytabOctetString.from_string('kerbi'))
 
         return p
 
     def to_string(self):
-        return '-'.join([c.to_string() for c in self.components])
+        return '-'.join([
+            c.to_string() for c in self.components
+        ])
 
     def to_asn1(self):
-        t = {'name-type': self.name_type,
-             'name-string': [name.to_string() for name in self.components]}
+        t = {
+            'name-type': self.name_type,
+            'name-string': [
+                name.to_string() for name in self.components
+            ]
+        }
         return t, self.realm.to_string()
 
     @staticmethod
     def from_buffer(buffer):
         p = KeytabPrincipal()
-        p.num_components = int.from_bytes(
-            buffer.read(2), byteorder='big', signed=False)
+        p.num_components, = struct.unpack('>H', buffer.read(2))
         p.realm = KeytabOctetString.parse(buffer)
+    
         for i in range(p.num_components):
             p.components.append(KeytabOctetString.parse(buffer))
-        p.name_type = int.from_bytes(
-            buffer.read(4), byteorder='big', signed=False)
+
+        p.name_type, = struct.unpack('>I', buffer.read(4))
         return p
 
     def to_bytes(self):
-        t = len(self.components).to_bytes(2, byteorder='big', signed=False)
+        t = struct.pack('>H', len(self.components))
         t += self.realm.to_bytes()
+
         for com in self.components:
             t += com.to_bytes()
-        t += self.name_type.to_bytes(4, byteorder='big', signed=False)
+
+        t += struct.pack('>I', self.name_type)
         return t
 
 
-class KeytabOctetString:
+class KeytabOctetString(object):
     """
     Same as CCACHEOctetString
     """
+
+    __slots__ = (
+        'length', 'data'
+    )
 
     def __init__(self):
         self.length = None
         self.data = None
 
+    @staticmethod
     def empty():
         o = KeytabOctetString()
         o.length = 0
@@ -90,12 +105,14 @@ class KeytabOctetString:
     def to_string(self):
         return self.data.decode()
 
+    @staticmethod
     def from_string(data):
         o = KeytabOctetString()
         o.data = data.encode()
         o.length = len(o.data)
         return o
 
+    @staticmethod
     def from_asn1(data):
         o = KeytabOctetString()
         o.length = len(data)
@@ -105,10 +122,10 @@ class KeytabOctetString:
             o.data = data
         return o
 
+    @staticmethod
     def parse(reader):
         o = KeytabOctetString()
-        o.length = int.from_bytes(reader.read(
-            2), byteorder='big', signed=False)
+        o.length = struct.unpack('>H', reader.read(2))
         o.data = reader.read(o.length)
         return o
 
@@ -116,12 +133,19 @@ class KeytabOctetString:
         if isinstance(self.data, str):
             self.data = self.data.encode()
             self.length = len(self.data)
-        t = len(self.data).to_bytes(2, byteorder='big', signed=False)
+
+        t = struct.pack('>H', len(self.data))
         t += self.data
         return t
 
 
-class KeytabEntry:
+class KeytabEntry(object):
+    __slots__ = (
+        'principal', 'timestamp', 'key_version',
+        'enctype', 'key_version', 'key_length',
+        'key_contents'
+    )
+
     def __init__(self):
         self.principal = None
         self.timestamp = None
@@ -132,10 +156,10 @@ class KeytabEntry:
 
     def to_bytes(self):
         t = self.principal.to_bytes()
-        t += self.timestamp.to_bytes(4, 'big', signed=False)
-        t += self.key_version.to_bytes(1, 'big', signed=False)
-        t += self.enctype.to_bytes(2, 'big', signed=False)
-        t += self.key_length.to_bytes(2, 'big', signed=False)
+        t += struct.pack('>I', self.timestamp)
+        t += struct.pack('B', self.key_version)
+        t += struct.pack('>H', self.enctype)
+        t += struct.pack('>H', self.key_length)
         t += self.key_contents
         return t
 
@@ -147,11 +171,10 @@ class KeytabEntry:
     def from_buffer(buffer):
         ke = KeytabEntry()
         ke.principal = KeytabPrincipal.from_buffer(buffer)
-        ke.timestamp = int.from_bytes(
-            buffer.read(4), byteorder='big', signed=False)
-        ke.key_version = int.from_bytes(buffer.read(1), 'big', signed=False)
-        ke.enctype = int.from_bytes(buffer.read(2), 'big', signed=False)
-        ke.key_length = int.from_bytes(buffer.read(2), 'big', signed=False)
+
+        ke.timestamp, ke.key_version, ke.enctype, ke.key_length = \
+            struct.unpack('>IBHH', buffer.read(4+1+2+2))
+
         ke.key_contents = buffer.read(ke.key_length)
         return ke
 
@@ -167,18 +190,24 @@ class KeytabEntry:
         return t
 
 
-class Keytab:
+class Keytab(object):
+    __slots__ = (
+        'krb5', 'version', 'entries'
+    )
+
     def __init__(self):
         self.krb5 = 5
         self.version = 2
         self.entries = []
 
     def to_bytes(self):
-        t = self.krb5.to_bytes(1, 'big', signed=False)
-        t += self.version.to_bytes(1, 'big', signed=False)
+        t = struct.pack(
+            'BB', self.krb5.to_bytes, self.version.to_bytes
+        )
+
         for e in self.entries:
             data = e.to_bytes()
-            t += len(data).to_bytes(4, 'big', signed=False)
+            t += struct.pack('>I', len(data))
             t += data
 
         return t
@@ -195,11 +224,11 @@ class Keytab:
         buffer.seek(pos, 0)
 
         k = Keytab()
-        k.krb5 = int.from_bytes(buffer.read(1), 'big', signed=False)
-        k.version = int.from_bytes(buffer.read(1), 'big', signed=False)
+        k.krb5, k.version = struct.unpack('BB', buffer.read(2))
+    
         i = 0
         while i < buffer_size:
-            entry_size = int.from_bytes(buffer.read(4), 'big', signed=True)
+            entry_size, = struct.unpack('>I', buffer.read(4))
             if entry_size == 0:
                 break
 

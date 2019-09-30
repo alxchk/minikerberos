@@ -5,7 +5,7 @@ import struct
 # https://tools.ietf.org/html/rfc4121#section-4.1.1.1
 
 
-class ChecksumFlags(enum.IntFlag):
+class ChecksumFlags(enum.IntEnum):
     GSS_C_DELEG_FLAG = 1
     GSS_C_MUTUAL_FLAG = 2
     GSS_C_REPLAY_FLAG = 4

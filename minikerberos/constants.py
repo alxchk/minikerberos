@@ -22,17 +22,19 @@ class NAME_TYPE(enum.Enum):
 	MS_PRINCIPAL_AND_ID = -129  #(-129), -- NT style name and SID
 	NTLM = -1200 #(-1200) -- NTLM name, realm is domain
 
+
 class MESSAGE_TYPE(enum.Enum):
-	KRB_AS_REQ = 10 
-	KRB_AS_REP = 11 
-	KRB_TGS_REQ = 12 
-	KRB_TGS_REP = 13 
-	KRB_AP_REQ = 14 
-	KRB_AP_REP = 15 
-	KRB_SAFE = 20 
-	KRB_PRIV = 21 
-	KRB_CRED = 22 
-	KRB_ERROR = 30 
+	KRB_AS_REQ = 10
+	KRB_AS_REP = 11
+	KRB_TGS_REQ = 12
+	KRB_TGS_REP = 13
+	KRB_AP_REQ = 14
+	KRB_AP_REP = 15
+	KRB_SAFE = 20
+	KRB_PRIV = 21
+	KRB_CRED = 22
+	KRB_ERROR = 30
+
 
 class EncryptionType(enum.Enum):
 	NULL = 0#
@@ -59,8 +61,8 @@ class EncryptionType(enum.Enum):
 	DES_PCBC_NONE = -0x1003#
 	DIGEST_MD5_NONE = -0x1004#		-- private use, lukeh@padl.com
 	CRAM_MD5_NONE = -0x1005#		-- private use, lukeh@padl.com
-	
-	
+
+
 class PaDataType(enum.Enum):
 	NONE = 0#
 	TGS_REQ = 1#

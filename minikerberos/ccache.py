@@ -29,7 +29,7 @@ class Header(object):
 		self.tag = None
 		self.taglen = None
 		self.tagdata = None
-		
+
 	@staticmethod
 	def parse(data):
 		"""
@@ -40,19 +40,19 @@ class Header(object):
 
 		while reader.tell() < len(data):
 			h = Header()
-			h.tag = struct.unpack('>H', reader.read(2))
-			h.taglen = struct.unpack('>H', reader.read(2))
+			h.tag, = struct.unpack('>H', reader.read(2))
+			h.taglen, = struct.unpack('>H', reader.read(2))
 			h.tagdata = reader.read(h.taglen)
 			headers.append(h)
 
 		return headers
-		
+
 	def to_bytes(self):
 		t =  struct.pack('>H', self.tag)
 		t += struct.pack('>H', len(self.tagdata))
 		t += self.tagdata
 		return t
-		
+
 	def __str__(self):
 		t = 'tag: %s\n' % self.tag
 		t += 'taglen: %s\n' % self.taglen
@@ -68,13 +68,14 @@ class DateTime(object):
 	def __init__(self):
 		self.time_offset = None
 		self.usec_offset = None
-		
+
+	@staticmethod
 	def parse(reader):
 		d = DateTime()
-		d.time_offset = struct.unpack('>I', reader.read(4))
-		d.usec_offset = struct.unpack('>I', reader.read(4))
+		d.time_offset, = struct.unpack('>I', reader.read(4))
+		d.usec_offset, = struct.unpack('>I', reader.read(4))
 		return d
-		
+
 	def to_bytes(self):
 		t =  struct.pack('>I', self.time_offset)
 		t += struct.pack('>I', self.usec_offset)
@@ -83,9 +84,9 @@ class DateTime(object):
 
 class Credential(object):
 	__slots__ = (
-		'client', 'server',  'key', 
-		'time', 'is_skey',  'tktflags', 
-		'num_address', 'addrs', 'num_authdata', 
+		'client', 'server',  'key',
+		'time', 'is_skey',  'tktflags',
+		'num_address', 'addrs', 'num_authdata',
 		'authdata',  'ticket', 'second_ticket'
 	)
 
@@ -125,7 +126,7 @@ class Credential(object):
 			tgs_checksum = res['enc-part']['cipher'][:16]
 			tgs_encrypted_data2 = res['enc-part']['cipher'][16:]
 			return '$krb5tgs$%s$*%s$%s$spn*$%s$%s' % (
-				tgs_encryption_type,tgs_name_string,tgs_realm, 
+				tgs_encryption_type,tgs_name_string,tgs_realm,
 				tgs_checksum.hex(), tgs_encrypted_data2.hex()
 			)
 
@@ -137,7 +138,7 @@ class Credential(object):
 			'etype': 1,
 			'cipher': b''
 		})
-		
+
 		tgt_rep = {
 			'pvno' : krb5_pvno,
 			'msg-typ' : MESSAGE_TYPE.KRB_AS_REP.value,
@@ -148,7 +149,7 @@ class Credential(object):
 		}
 
 		return tgt_rep, EncryptionKey(self.key.to_asn1()).native
-		
+
 	def to_kirbi(self):
 		filename = '%s@%s_%s' % (
 			self.client.to_string() , self.server.to_string(),
@@ -172,10 +173,10 @@ class Credential(object):
 
 		krbcredinfo['srealm'] = self.server.realm.to_string()
 		krbcredinfo['sname'] = self.server.to_asn1()[0]
-		
+
 		enc_krbcred = {}
 		enc_krbcred['ticket-info'] = [KrbCredInfo(krbcredinfo)]
-		
+
 		krbcred = {}
 		krbcred['pvno'] = krb5_pvno
 		krbcred['msg-type'] = MESSAGE_TYPE.KRB_CRED.value
@@ -191,14 +192,14 @@ class Credential(object):
 	@staticmethod
 	def from_asn1(ticket, data):
 		###
-		# data  = KrbCredInfo 
+		# data  = KrbCredInfo
 		###
 		c = Credential()
 		c.client = CCACHEPrincipal.from_asn1(data['pname'], data['prealm'])
 		c.server = CCACHEPrincipal.from_asn1(data['sname'], data['srealm'])
 		c.key = Keyblock.from_asn1(data['key'])
 		c.is_skey = 0 #not sure!
-		
+
 		c.tktflags = TicketFlags(data['flags']).cast(core.IntegerBitString).native
 		c.num_address = 0
 		c.num_authdata = 0
@@ -214,13 +215,13 @@ class Credential(object):
 		c.key = Keyblock.parse(reader)
 		c.time = Times.parse(reader)
 		c.is_skey = ord(reader.read(1))
-		c.tktflags = struct.unpack('<I', reader.read(4))
-		c.num_address = struct.unpack('>I', reader.read(4))
+		c.tktflags, = struct.unpack('<I', reader.read(4))
+		c.num_address, = struct.unpack('>I', reader.read(4))
 
 		for i in range(c.num_address):
 			c.addrs.append(Address.parse(reader))
 
-		c.num_authdata = struct.unpack('>I', reader.read(4))
+		c.num_authdata, = struct.unpack('>I', reader.read(4))
 		for i in range(c.num_authdata):
 			c.authdata.append(Authdata.parse(reader))
 
@@ -228,19 +229,19 @@ class Credential(object):
 		c.second_ticket = CCACHEOctetString.parse(reader)
 		return c
 
-	@staticmethod		
+	@staticmethod
 	def summary_header():
 		return ('client','server','starttime','endtime','renew-till')
-		
+
 	def summary(self):
-		return [ 
-			'%s@%s' % (self.client.to_string(),self.client.realm.to_string()), 
+		return [
+			'%s@%s' % (self.client.to_string(),self.client.realm.to_string()),
 			'%s@%s' % (self.server.to_string(), self.server.realm.to_string()),
 			datetime.datetime.fromtimestamp(self.time.starttime).isoformat() if self.time.starttime != 0 else 'N/A',
 			datetime.datetime.fromtimestamp(self.time.endtime).isoformat() if self.time.endtime != 0 else 'N/A',
 			datetime.datetime.fromtimestamp(self.time.renew_till).isoformat() if self.time.renew_till != 0 else 'N/A',
 		]
-		
+
 	def to_bytes(self):
 		t =  self.client.to_bytes()
 		t += self.server.to_bytes()
@@ -263,7 +264,7 @@ class Credential(object):
 
 class Keyblock(object):
 	__slots__ = (
-		'keytype', 'etype', 'keylen'
+		'keytype', 'etype', 'keylen', 'keyvalue'
 	)
 
 	def __init__(self):
@@ -271,7 +272,7 @@ class Keyblock(object):
 		self.etype = None
 		self.keylen = None
 		self.keyvalue = None
-	
+
 	@staticmethod
 	def from_asn1(data):
 		k = Keyblock()
@@ -279,33 +280,33 @@ class Keyblock(object):
 		k.etype = 0 # not sure
 		k.keylen = len(data['keyvalue'])
 		k.keyvalue = data['keyvalue']
-		
+
 		return k
-		
+
 	def to_asn1(self):
 		t = {}
 		t['keytype'] = self.keytype
 		t['keyvalue'] = self.keyvalue
-		
+
 		return t
 
 	@staticmethod
 	def parse(reader):
 		k = Keyblock()
-		k.keytype = struct.unpack('>H', reader.read(2))
-		k.etype = struct.unpack('>H', reader.read(2))
-		k.keylen = struct.unpack('>H', reader.read(2))
+		k.keytype, = struct.unpack('>H', reader.read(2))
+		k.etype, = struct.unpack('>H', reader.read(2))
+		k.keylen, = struct.unpack('>H', reader.read(2))
 		k.keyvalue = reader.read(k.keylen)
 		return k
-		
+
 	def to_bytes(self):
 		t = struct.pack('>H', self.keytype)
 		t += struct.pack('>H', self.etype)
 		t += struct.pack('>H', self.keylen)
 		t += self.keyvalue
 		return t
-		
-		
+
+
 class Times(object):
 	__slots__ = (
 		'authtime', 'starttime', 'endtime', 'renew_till'
@@ -333,12 +334,12 @@ class Times(object):
 		t.endtime = dt_to_kerbtime(enc_as_rep_part['endtime'])
 		t.renew_till = dt_to_kerbtime(enc_as_rep_part['renew-till'])
 		return t
-		
+
 	@staticmethod
-	def dummy_time(start=datetime.datetime.now(datetime.timezone.utc)):
+	def dummy_time(start=datetime.datetime.utcnow()):
 		t = Times()
 		t.authtime = dt_to_kerbtime(start)
-		t.starttime = dt_to_kerbtime(start )
+		t.starttime = dt_to_kerbtime(start)
 		t.endtime = dt_to_kerbtime(start + datetime.timedelta(days=1))
 		t.renew_till = dt_to_kerbtime(start + datetime.timedelta(days=2))
 		return t
@@ -346,12 +347,12 @@ class Times(object):
 	@staticmethod
 	def parse(reader):
 		t = Times()
-		t.authtime = struct.unpack_from('>I', reader.read(4))
-		t.starttime = struct.unpack_from('>I', reader.read(4))
-		t.endtime = struct.unpack_from('>I', reader.read(4))
-		t.renew_till = struct.unpack_from('>I', reader.read(4))
+		t.authtime, = struct.unpack_from('>I', reader.read(4))
+		t.starttime, = struct.unpack_from('>I', reader.read(4))
+		t.endtime, = struct.unpack_from('>I', reader.read(4))
+		t.renew_till, = struct.unpack_from('>I', reader.read(4))
 		return t
-		
+
 	def to_bytes(self):
 		t = struct.pack('>I', self.authtime)
 		t += struct.pack('>I', self.starttime)
@@ -368,14 +369,14 @@ class Address(object):
 	def __init__(self):
 		self.addrtype = None
 		self.addrdata = None
-		
+
 	@staticmethod
 	def parse(reader):
 		a = Address()
-		a.addrtype = struct.unpack('>H', reader.read(2))
+		a.addrtype, = struct.unpack('>H', reader.read(2))
 		a.addrdata = CCACHEOctetString.parse(reader)
 		return a
-		
+
 	def to_bytes(self):
 		t = struct.pack('>H', self.addrtype)
 		t += self.addrdata.to_bytes()
@@ -394,10 +395,10 @@ class Authdata(object):
 	@staticmethod
 	def parse(reader):
 		a = Authdata()
-		a.authtype = struct.unpack_from('>H', reader.read(2))
+		a.authtype, = struct.unpack_from('>H', reader.read(2))
 		a.authdata = CCACHEOctetString.parse(reader)
 		return a
-		
+
 	def to_bytes(self):
 		t = struct.pack('>H', self.authtype)
 		t += self.authdata.to_bytes()
@@ -423,9 +424,9 @@ class CCACHEPrincipal(object):
 		p.realm = CCACHEOctetString.from_string(realm)
 		for comp in principal['name-string']:
 			p.components.append(CCACHEOctetString.from_asn1(comp))
-			
+
 		return p
-	
+
 	@staticmethod
 	def dummy():
 		p = CCACHEPrincipal()
@@ -434,30 +435,30 @@ class CCACHEPrincipal(object):
 		p.realm = CCACHEOctetString.from_string('kerbi.corp')
 		for i in range(1):
 			p.components.append(CCACHEOctetString.from_string('kerbi'))
-			
+
 		return p
 
 	def to_string(self):
 		return '-'.join([c.to_string() for c in self.components])
-		
+
 	def to_asn1(self):
 		t = {
 			'name-type': self.name_type,
 			'name-string': [name.to_string() for name in self.components]
 		}
-		return t, self.realm.to_string()		
+		return t, self.realm.to_string()
 
 	@staticmethod
 	def parse(reader):
 		p = CCACHEPrincipal()
-		p.name_type = struct.unpack_from('>I', reader.read(4))
-		p.num_components = struct.unpack_from('>I', reader.read(4))
+		p.name_type, = struct.unpack_from('>I', reader.read(4))
+		p.num_components, = struct.unpack_from('>I', reader.read(4))
 		p.realm = CCACHEOctetString.parse(reader)
 
 		for i in range(p.num_components):
 			p.components.append(CCACHEOctetString.parse(reader))
 		return p
-		
+
 	def to_bytes(self):
 		t = struct.pack('>I', self.name_type)
 		t += struct.pack('>I', len(self.components))
@@ -484,10 +485,10 @@ class CCACHEOctetString(object):
 		o.length = 0
 		o.data = b''
 		return o
-		
+
 	def to_asn1(self):
 		return self.data
-		
+
 	def to_string(self):
 		return self.data.decode()
 
@@ -510,13 +511,13 @@ class CCACHEOctetString(object):
 
 		return o
 
-	@staticmethod	
+	@staticmethod
 	def parse(reader):
 		o = CCACHEOctetString()
-		o.length = struct.unpack('>I', reader.read(4))
+		o.length, = struct.unpack('>I', reader.read(4))
 		o.data = reader.read(o.length)
 		return o
-		
+
 	def to_bytes(self):
 		if isinstance(self.data, str):
 			self.data = self.data.encode()
@@ -543,27 +544,27 @@ class CCACHE(object):
 		self.headers = []
 		self.primary_principal = None
 		self.credentials = []
-		
+
 		if empty == False:
 			self.__setup()
-		
+
 	def __setup(self):
 		self.file_format_version = 0x0504
-		
+
 		header = Header()
 		header.tag = 1
 		header.taglen = 8
 		#header.tagdata = b'\xff\xff\xff\xff\x00\x00\x00\x00'
 		header.tagdata = b'\x00\x00\x00\x00\x00\x00\x00\x00'
 		self.headers.append(header)
-		
+
 		#t_hdr = b''
 		#for header in self.headers:
 		#	t_hdr += header.to_bytes()
 		#self.headerlen = 1 #size of the entire header in bytes, encoded in 2 byte big-endian unsigned int
-		
+
 		self.primary_principal = CCACHEPrincipal.dummy()
-		
+
 	def __str__(self):
 		t = '== CCACHE ==\n'
 		t+= 'file_format_version : %s\n' % self.file_format_version
@@ -571,16 +572,16 @@ class CCACHE(object):
 			t+= '%s\n' % header
 		t+= 'primary_principal : %s\n' % self.primary_principal
 		return t
-		
+
 	def add_tgt(self, as_rep, enc_as_rep_part, override_pp = True): #from AS_REP
 		"""
 		Creates credential object from the TGT and adds to the ccache file
 		The TGT is basically the native representation of the asn1 encoded AS_REP
 		data that the AD sends upon a succsessful TGT request.
-		
+
 		This function doesn't do decryption of the encrypted part of the as_rep object,
 		it is expected that the decrypted XXX is supplied in enc_as_rep_part
-		
+
 		override_pp: bool to determine if client principal should be used as the primary
 		principal for the ccache file
 		"""
@@ -595,25 +596,25 @@ class CCACHE(object):
 		c.time = Times.from_asn1(enc_as_rep_part)
 		c.key = Keyblock.from_asn1(enc_as_rep_part['key'])
 		c.is_skey = 0 #not sure!
-		
+
 		c.tktflags = TicketFlags(enc_as_rep_part['flags']).cast(core.IntegerBitString).native
 		c.num_address = 0
 		c.num_authdata = 0
 
 		c.ticket = CCACHEOctetString.from_asn1(Ticket(as_rep['ticket']).dump())
 		c.second_ticket = CCACHEOctetString.empty()
-		
+
 		self.credentials.append(c)
-		
+
 	def add_tgs(self, tgs_rep, enc_tgs_rep_part, override_pp=False): #from AS_REP
 		"""
 		Creates credential object from the TGS and adds to the ccache file
 		The TGS is the native representation of the asn1 encoded TGS_REP data when the
 		user requests a tgs to a specific service principal with a valid TGT
-		
+
 		This function doesn't do decryption of the encrypted part of the tgs_rep object,
 		it is expected that the decrypted XXX is supplied in enc_as_rep_part
-		
+
 		override_pp: bool to determine if client principal should be used as the primary
 		principal for the ccache file
 		"""
@@ -627,24 +628,24 @@ class CCACHE(object):
 		c.time = Times.from_asn1(enc_tgs_rep_part)
 		c.key = Keyblock.from_asn1(enc_tgs_rep_part['key'])
 		c.is_skey = 0 #not sure!
-		
+
 		c.tktflags = TicketFlags(enc_tgs_rep_part['flags']).cast(core.IntegerBitString).native
 		c.num_address = 0
 		c.num_authdata = 0
 		c.ticket = CCACHEOctetString.from_asn1(Ticket(tgs_rep['ticket']).dump())
 		c.second_ticket = CCACHEOctetString.empty()
-		
+
 		self.credentials.append(c)
-	
+
 	def add_kirbi(self, krbcred, override_pp=True):
 		c = Credential()
 		enc_credinfo = EncKrbCredPart.load(krbcred['enc-part']['cipher']).native
 		ticket_info = enc_credinfo['ticket-info'][0]
-		
+
 		c.client = CCACHEPrincipal.from_asn1(ticket_info['pname'], ticket_info['prealm'])
 		if override_pp == True:
 			self.primary_principal = c.client
-		
+
 		#yaaaaay 4 additional weirdness!!!!
 		#if sname name-string contains a realm as well htne impacket will crash miserably :(
 		if len(ticket_info['sname']['name-string']) > 2 and ticket_info['sname']['name-string'][-1].upper() == ticket_info['srealm'].upper():
@@ -658,25 +659,25 @@ class CCACHE(object):
 		c.time = Times.from_asn1(ticket_info)
 		c.key = Keyblock.from_asn1(ticket_info['key'])
 		c.is_skey = 0 #not sure!
-		
+
 		c.tktflags = TicketFlags(ticket_info['flags']).cast(core.IntegerBitString).native
 		c.num_address = 0
 		c.num_authdata = 0
 		c.ticket = CCACHEOctetString.from_asn1(Ticket(krbcred['tickets'][0]).dump()) #kirbi only stores one ticket per file
 		c.second_ticket = CCACHEOctetString.empty()
-		
-		self.credentials.append(c)		
+
+		self.credentials.append(c)
 
 	@staticmethod
 	def from_kirbi(kirbidata):
 		kirbi = KRBCRED.load(kirbidata).native
 		cc = CCACHE()
-		cc.add_kirbi(kirbi)		
+		cc.add_kirbi(kirbi)
 		return cc
 
 	def get_all_tgt(self):
 		"""
-		Returns a list of AS_REP tickets in native format (dict). 
+		Returns a list of AS_REP tickets in native format (dict).
 		To determine which ticket are AP_REP we check for the server principal to be the kerberos service
 		"""
 		tgts = []
@@ -699,16 +700,16 @@ class CCACHE(object):
 				hashes.append(cred.to_hash())
 
 		return hashes
-		
+
 	@staticmethod
 	def parse(reader):
 		c = CCACHE(True)
-		c.file_format_version = struct.unpack('>H', reader.read(2))
-		
-		hdr_size = struct.unpack('>H', reader.read(2))
+		c.file_format_version, = struct.unpack('>H', reader.read(2))
+
+		hdr_size, = struct.unpack('>H', reader.read(2))
 		c.headers = Header.parse(reader.read(hdr_size))
-		
-		#c.headerlen = 
+
+		#c.headerlen =
 		#for i in range(c.headerlen):
 		#	c.headers.append(Header.parse(reader))
 
@@ -720,32 +721,34 @@ class CCACHE(object):
 
 		while reader.tell() < eof:
 			c.credentials.append(Credential.parse(reader))
-		
+
 		return c
-		
+
 	def to_bytes(self):
 		t = self.file_format_version.to_bytes(2, byteorder='big', signed=False)
-		
+
 		t_hdr = b''
 		for header in self.headers:
 			t_hdr += header.to_bytes()
-		
+
 		t += len(t_hdr).to_bytes(2, byteorder='big', signed=False)
 		t += t_hdr
-		
+
 		t += self.primary_principal.to_bytes()
 		for cred in self.credentials:
 			t += cred.to_bytes()
 		return t
-		
+
+	@staticmethod
 	def from_kirbifile(kirbi_filename):
 		kf_abs = os.path.abspath(kirbi_filename)
 		kirbidata = None
 		with open(kf_abs, 'rb') as f:
 			kirbidata = f.read()
-			
+
 		return CCACHE.from_kirbi(kirbidata)
-		
+
+	@staticmethod
 	def from_kirbidir(directory_path):
 		"""
 		Iterates trough all .kirbi files in a given directory and converts all of them into one CCACHE object
@@ -757,14 +760,14 @@ class CCACHE(object):
 				kirbidata = f.read()
 				kirbi = KRBCRED.load(kirbidata).native
 				cc.add_kirbi(kirbi)
-		
+
 		return cc
-		
+
 	def to_kirbidir(self, directory_path):
 		"""
 		Converts all credential object in the CCACHE object to the kirbi file format used by mimikatz.
 		The kirbi file format supports one credential per file, so prepare for a lot of files being generated.
-		
+
 		directory_path: str the directory to write the kirbi files to
 		"""
 		kf_abs = os.path.abspath(directory_path)
@@ -774,18 +777,19 @@ class CCACHE(object):
 			filepath = os.path.join(kf_abs, filename)
 			with open(filepath, 'wb') as o:
 				o.write(kirbi.dump())
-		
+
+	@staticmethod
 	def from_file(filename):
 		"""
 		Parses the ccache file and returns a CCACHE object
 		"""
 		with open(filename, 'rb') as f:
 			return CCACHE.parse(f)
-			
+
 	def to_file(self, filename):
 		"""
 		Writes the contents of the CCACHE object to a file
 		"""
 		with open(filename, 'wb') as f:
 			f.write(self.to_bytes())
-		
+
