@@ -9,6 +9,7 @@ from minikerberos.common import *
 from minikerberos.communication import *
 from minikerberos.ccache import CCACHE
 from minikerberos.encryption import _enctype_table, Key
+from minikerberos.utils import as_hex
 import pprint
 
 if __name__ == '__main__':
@@ -58,7 +59,7 @@ if __name__ == '__main__':
 	krbtgt_cipher = _enctype_table[kc.kerberos_TGT['ticket']['enc-part']['etype']]
 	
 	temp = krbtgt_cipher.decrypt(krbtgt_key, kc.kerberos_TGT['ticket']['enc-part']['kvno'], krbtgt_data)
-	print(temp.hex())
+	print(as_hex(temp))
 	krbtgt_enc = EncTicketPart.load(temp).native
 	pprint.pprint(krbtgt_enc)
 	

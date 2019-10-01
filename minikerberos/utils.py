@@ -43,7 +43,7 @@ def TGSTicket2hashcat(res):
 
     return '$krb5tgs$%s$*%s$%s$spn*$%s$%s' % (
         tgs_encryption_type, tgs_name_string, tgs_realm,
-        tgs_checksum.hex(), tgs_encrypted_data2.hex()
+        as_hex(tgs_checksum), as_hex(tgs_encrypted_data2)
     )
 
 
@@ -54,7 +54,9 @@ def TGTTicket2hashcat(res):
     tgt_checksum = res['enc-part']['cipher'][:16]
     tgt_encrypted_data2 = res['enc-part']['cipher'][16:]
 
-    return '$krb5asrep$%s$%s$%s$%s$%s' % (tgt_encryption_type, tgt_name_string, tgt_realm, tgt_checksum.hex(), tgt_encrypted_data2.hex())
+    return '$krb5asrep$%s$%s$%s$%s$%s' % (
+        tgt_encryption_type, tgt_name_string, tgt_realm,
+        as_hex(tgt_checksum), as_hex(tgt_encrypted_data2))
 
 
 try:
@@ -90,9 +92,26 @@ try:
         if isinstance(data, int):
             return '{:X}'.format(data)
         elif isinstance(data, str):
-            return str.encode('hex')
+            return data.encode('hex')
         else:
             raise ValueError('Unexpected type (%s)' % type(data))
 
 except NameError:
     NotImplementedError()
+
+
+class EOFReader(object):
+    __slots__ = ('_fobj',)
+
+    def __init__(self, fobj):
+        self._fobj = fobj
+
+    def __getattr__(self, key):
+        return getattr(self._fobj, key)
+
+    def read(self, bytes):
+        result = self._fobj.read(bytes)
+        if len(result) != bytes:
+            raise EOFError()
+
+        return result

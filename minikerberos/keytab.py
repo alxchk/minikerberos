@@ -9,6 +9,10 @@ from __future__ import unicode_literals
 import io
 import struct
 
+from minikerberos.utils import (
+    range, as_bytes, as_str, as_hex, EOFReader
+)
+
 
 class KeytabPrincipal(object):
     __slots__ = (
@@ -106,23 +110,21 @@ class KeytabOctetString(object):
         return self.data
 
     def to_string(self):
-        return self.data.decode()
+        return as_str(self.data)
 
     @staticmethod
     def from_string(data):
         o = KeytabOctetString()
-        o.data = data.encode()
+        o.data = as_bytes(data)
         o.length = len(o.data)
         return o
 
     @staticmethod
     def from_asn1(data):
         o = KeytabOctetString()
-        o.length = len(data)
-        if isinstance(data, str):
-            o.data = data.encode()
-        else:
-            o.data = data
+        o.data = as_bytes(data)
+        o.length = len(o.data)
+        o.data = data
         return o
 
     @staticmethod
@@ -133,12 +135,9 @@ class KeytabOctetString(object):
         return o
 
     def to_bytes(self):
-        if isinstance(self.data, str):
-            self.data = self.data.encode()
-            self.length = len(self.data)
-
-        t = struct.pack('>H', len(self.data))
-        t += self.data
+        data = as_bytes(self.data)
+        t = struct.pack('>H', len(data))
+        t += data
         return t
 
 
@@ -188,8 +187,7 @@ class KeytabEntry(object):
         t += 'key_version : %s\r\n' % self.key_version
         t += 'enctype : %s\r\n' % self.enctype
         t += 'key_length : %s\r\n' % self.key_length
-        t += 'key_contents : %s\r\n' % self.key_contents.hex()
-
+        t += 'key_contents : %s\r\n' % as_hex(self.key_contents)
         return t
 
 
@@ -204,16 +202,20 @@ class Keytab(object):
         self.entries = []
 
     def to_bytes(self):
-        t = struct.pack(
-            'BB', self.krb5.to_bytes, self.version.to_bytes
+        entries = []
+
+        entries.append(
+            struct.pack(
+               'BB', self.krb5.to_bytes, self.version.to_bytes
+            )
         )
 
         for e in self.entries:
             data = e.to_bytes()
-            t += struct.pack('>I', len(data))
-            t += data
+            entries.append(len(data))
+            entries.append(data)
 
-        return t
+        return b''.join(entries)
 
     @staticmethod
     def from_bytes(data):
@@ -221,17 +223,18 @@ class Keytab(object):
 
     @staticmethod
     def from_buffer(buffer):
-        pos = buffer.tell()
-        buffer.seek(0, 2)
-        buffer_size = buffer.tell() - pos
-        buffer.seek(pos, 0)
+        buffer = EOFReader(buffer)
 
         k = Keytab()
         k.krb5, k.version = struct.unpack('BB', buffer.read(2))
 
         i = 0
-        while i < buffer_size:
-            entry_size, = struct.unpack('>I', buffer.read(4))
+        while True:
+            try:
+                entry_size, = struct.unpack('>I', buffer.read(4))
+            except EOFError:
+                entry_size = 0
+
             if entry_size == 0:
                 break
 

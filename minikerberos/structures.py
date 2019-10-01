@@ -57,8 +57,10 @@ class AuthenticatorChecksum(object):
         t += struct.pack('<I', self.flags)
 
         if self.flags & ChecksumFlags.GSS_C_DELEG_FLAG:
-            t += chr(int(self.delegation))
-            t += struct.pack('<H', len(self.delegation_data.to_bytes()))
+            t += struct.pack(
+                '<BH', self.delegation,
+                len(self.delegation_data.to_bytes())
+            )
             t += self.delegation_data
 
         if self.extensions:

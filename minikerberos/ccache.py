@@ -15,10 +15,17 @@ import hashlib
 import struct
 
 from minikerberos.asn1_structs import *
-from minikerberos.utils import dt_to_kerbtime, TGSTicket2hashcat
+from minikerberos.utils import (
+    dt_to_kerbtime, TGSTicket2hashcat, as_bytes, as_str, as_hex,
+    EOFReader, range
+)
 from minikerberos.constants import *
 from minikerberos import logger
 from asn1crypto import core
+
+
+class MalformedTicket(ValueError):
+    pass
 
 
 # http://repo.or.cz/w/krb5dissect.git/blob_plain/HEAD:/ccache.txt
@@ -42,8 +49,7 @@ class Header(object):
 
         while reader.tell() < len(data):
             h = Header()
-            h.tag, = struct.unpack('>H', reader.read(2))
-            h.taglen, = struct.unpack('>H', reader.read(2))
+            h.tag, h.taglen = struct.unpack('>HH', reader.read(4))
             h.tagdata = reader.read(h.taglen)
             headers.append(h)
 
@@ -74,14 +80,12 @@ class DateTime(object):
     @staticmethod
     def parse(reader):
         d = DateTime()
-        d.time_offset, = struct.unpack('>I', reader.read(4))
-        d.usec_offset, = struct.unpack('>I', reader.read(4))
+        d.time_offset, d.usec_offset = struct.unpack(
+            '>II', reader.read(8))
         return d
 
     def to_bytes(self):
-        t =  struct.pack('>I', self.time_offset)
-        t += struct.pack('>I', self.usec_offset)
-        return t
+        return struct.pack('>II', self.time_offset, self.usec_offset)
 
 
 class Credential(object):
@@ -122,14 +126,14 @@ class Credential(object):
             tgs_encrypted_data2 = res['enc-part']['cipher'][:-12:]
             return '$krb5tgs$%s$%s$%s$%s$%s' % (
                 tgs_encryption_type,tgs_name_string,tgs_realm,
-                tgs_checksum.hex(), tgs_encrypted_data2.hex()
+                as_hex(tgs_checksum), as_hex(tgs_encrypted_data2)
             )
         else:
             tgs_checksum = res['enc-part']['cipher'][:16]
             tgs_encrypted_data2 = res['enc-part']['cipher'][16:]
             return '$krb5tgs$%s$*%s$%s$spn*$%s$%s' % (
                 tgs_encryption_type,tgs_name_string,tgs_realm,
-                tgs_checksum.hex(), tgs_encrypted_data2.hex()
+                as_hex(tgs_checksum), as_hex(tgs_encrypted_data2)
             )
 
     def to_tgt(self):
@@ -141,12 +145,17 @@ class Credential(object):
             'cipher': b''
         })
 
+        try:
+            ticket = Ticket.load(self.ticket.to_asn1()).native
+        except ValueError:
+            raise MalformedTicket()
+
         tgt_rep = {
             'pvno' : krb5_pvno,
             'msg-typ' : MESSAGE_TYPE.KRB_AS_REP.value,
             'crealm' : self.server.realm.to_string(),
             'cname' : self.client.to_asn1()[0],
-            'ticket' : Ticket.load(self.ticket.to_asn1()).native,
+            'ticket' : ticket,
             'enc-par' : enc_part.native
         }
 
@@ -206,7 +215,7 @@ class Credential(object):
             data['sname'],
             data['srealm']
         )
-        
+
         c.key = Keyblock.from_asn1(data['key'])
         c.is_skey = 0 #not sure!
 
@@ -215,6 +224,7 @@ class Credential(object):
         ).cast(core.IntegerBitString).native
         c.num_address = 0
         c.num_authdata = 0
+
         c.ticket = CCACHEOctetString.from_asn1(ticket['enc-part']['cipher'])
         c.second_ticket = CCACHEOctetString.empty()
         return c
@@ -226,9 +236,8 @@ class Credential(object):
         c.server = CCACHEPrincipal.parse(reader)
         c.key = Keyblock.parse(reader)
         c.time = Times.parse(reader)
-        c.is_skey = ord(reader.read(1))
-        c.tktflags, = struct.unpack('<I', reader.read(4))
-        c.num_address, = struct.unpack('>I', reader.read(4))
+        c.is_skey, c.tktflags, c.num_address = struct.unpack(
+            '>BII', reader.read(9))
 
         for i in range(c.num_address):
             c.addrs.append(Address.parse(reader))
@@ -259,9 +268,8 @@ class Credential(object):
         t += self.server.to_bytes()
         t += self.key.to_bytes()
         t += self.time.to_bytes()
-        t += chr(self.is_skey)
-        t += struct.pack('<I', self.tktflags)
-        t += struct.pack('>I', self.num_address)
+
+        t += struct.pack('>BII', self.is_skey, self.tktflags, self.num_address)
         for addr in self.addrs:
             t += addr.to_bytes()
 
@@ -305,16 +313,14 @@ class Keyblock(object):
     @staticmethod
     def parse(reader):
         k = Keyblock()
-        k.keytype, = struct.unpack('>H', reader.read(2))
-        k.etype, = struct.unpack('>H', reader.read(2))
-        k.keylen, = struct.unpack('>H', reader.read(2))
+        k.keytype, k.etype, k.keylen = struct.unpack(
+            '>HHH', reader.read(6))
         k.keyvalue = reader.read(k.keylen)
         return k
 
     def to_bytes(self):
-        t = struct.pack('>H', self.keytype)
-        t += struct.pack('>H', self.etype)
-        t += struct.pack('>H', self.keylen)
+        t = struct.pack(
+            '>HHH', self.keytype, self.etype, self.keylen)
         t += self.keyvalue
         return t
 
@@ -359,18 +365,16 @@ class Times(object):
     @staticmethod
     def parse(reader):
         t = Times()
-        t.authtime, = struct.unpack_from('>I', reader.read(4))
-        t.starttime, = struct.unpack_from('>I', reader.read(4))
-        t.endtime, = struct.unpack_from('>I', reader.read(4))
-        t.renew_till, = struct.unpack_from('>I', reader.read(4))
+        t.authtime, t.starttime, t.endtime, t.renew_till = struct.unpack_from(
+            '>IIII', reader.read(16))
         return t
 
     def to_bytes(self):
-        t = struct.pack('>I', self.authtime)
-        t += struct.pack('>I', self.starttime)
-        t += struct.pack('>I', self.endtime)
-        t += struct.pack('>I', self.renew_till)
-        return t
+        return struct.pack(
+            '>IIII',
+            self.authtime, self.starttime,
+            self.endtime, self.renew_till
+        )
 
 
 class Address(object):
@@ -463,17 +467,17 @@ class CCACHEPrincipal(object):
     @staticmethod
     def parse(reader):
         p = CCACHEPrincipal()
-        p.name_type, = struct.unpack_from('>I', reader.read(4))
-        p.num_components, = struct.unpack_from('>I', reader.read(4))
+        p.name_type, p.num_components = struct.unpack_from(
+            '>II', reader.read(8))
         p.realm = CCACHEOctetString.parse(reader)
 
         for i in range(p.num_components):
             p.components.append(CCACHEOctetString.parse(reader))
+
         return p
 
     def to_bytes(self):
-        t = struct.pack('>I', self.name_type)
-        t += struct.pack('>I', len(self.components))
+        t = struct.pack('>II', self.name_type, len(self.components))
         t += self.realm.to_bytes()
 
         for com in self.components:
@@ -502,16 +506,12 @@ class CCACHEOctetString(object):
         return self.data
 
     def to_string(self):
-        return self.data.decode('latin-1')
+        return as_str(self.data)
 
     @staticmethod
     def from_string(data):
         o = CCACHEOctetString()
-        if isinstance(data, unicode):
-            o.data = data.encode('latin-1')
-        else:
-            o.data = data
-
+        o.data = as_bytes(data)
         o.length = len(o.data)
         return o
 
@@ -530,15 +530,7 @@ class CCACHEOctetString(object):
         return o
 
     def to_bytes(self):
-        data = self.data
-        if isinstance(data, unicode):
-            data = self.data.encode('latin-1')
-            
-        length = len(data)
-
-        t = struct.pack('>I', len(self.data))
-        t += data
-        return t
+        return struct.pack('>I', self.length) + self.data
 
 
 class CCACHE(object):
@@ -552,7 +544,7 @@ class CCACHE(object):
         'primary_principal', 'credentials'
     )
 
-    def __init__(self, empty = False):
+    def __init__(self, empty=False):
         self.file_format_version = None #0x0504
         self.headers = []
         self.primary_principal = None
@@ -613,6 +605,8 @@ class CCACHE(object):
         c.tktflags = TicketFlags(enc_as_rep_part['flags']).cast(core.IntegerBitString).native
         c.num_address = 0
         c.num_authdata = 0
+
+        print "SET TGT Ticket", len(Ticket(as_rep['ticket']).dump())
 
         c.ticket = CCACHEOctetString.from_asn1(Ticket(as_rep['ticket']).dump())
         c.second_ticket = CCACHEOctetString.empty()
@@ -696,11 +690,17 @@ class CCACHE(object):
         tgts = []
         for cred in self.credentials:
             if cred.server.to_string().lower().find('krbtgt') != -1:
-                tgts.append(cred.to_tgt())
+                try:
+                    tgts.append(cred.to_tgt())
+                except MalformedTicket:
+                    # The ticket field of a configuration entry is not (usually) a valid
+                    # encoding of a Kerberos ticket. An implementation must not treat the
+                    # cache file as malformed if it cannot decode the ticket
+                    pass
 
         return tgts
 
-    def get_hashes(self, all_hashes = False):
+    def get_hashes(self, all_hashes=False):
         """
         Returns a list of hashes in hashcat-firendly format for tickets with encryption type 23 (which is RC4)
         all_hashes: overrides the encryption type filtering and returns hash for all tickets
@@ -708,7 +708,11 @@ class CCACHE(object):
         """
         hashes = []
         for cred in self.credentials:
-            res = Ticket.load(cred.ticket.to_asn1()).native
+            try:
+                res = Ticket.load(cred.ticket.to_asn1()).native
+            except ValueError:
+                continue
+
             if int(res['enc-part']['etype']) == 23 or all_hashes == True:
                 hashes.append(cred.to_hash())
 
@@ -716,24 +720,19 @@ class CCACHE(object):
 
     @staticmethod
     def parse(reader):
-        c = CCACHE(True)
-        c.file_format_version, = struct.unpack('>H', reader.read(2))
+        reader = EOFReader(reader)
 
-        hdr_size, = struct.unpack('>H', reader.read(2))
+        c = CCACHE(True)
+        c.file_format_version, hdr_size = struct.unpack('>HH', reader.read(4))
         c.headers = Header.parse(reader.read(hdr_size))
 
-        #c.headerlen =
-        #for i in range(c.headerlen):
-        #	c.headers.append(Header.parse(reader))
-
         c.primary_principal = CCACHEPrincipal.parse(reader)
-        pos = reader.tell()
-        reader.seek(-1, 2)
-        eof = reader.tell()
-        reader.seek(pos, 0)
 
-        while reader.tell() < eof:
-            c.credentials.append(Credential.parse(reader))
+        while True:
+            try:
+                c.credentials.append(Credential.parse(reader))
+            except EOFError:
+                break
 
         return c
 

@@ -444,6 +444,7 @@ def get_gssapi(session_key):
 
 if __name__ == '__main__':
     from binascii import unhexlify as h
+    from minikerberos.utils import as_hex
 
     data_padded = h(
         '810e00001a204de2d64fd111a3da0000f875ae0d1c45000034000000'
@@ -499,8 +500,8 @@ if __name__ == '__main__':
 
     gssapi.GSS_Unwrap(r1, 0, auth_data=b'\xff'*8 + r2)
 
-    print(r1.hex())
-    print(ret1.hex())
+    print(as_hex(r1))
+    print(as_hex(ret1))
 
     assert r1 == ret1
     assert r2 == ret2

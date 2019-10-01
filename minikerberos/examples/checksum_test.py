@@ -14,7 +14,7 @@ et = EncryptionType(18)
 krbtgt_key = Key(18, ccred_krbtgt.get_key_for_enctype(et, salt = "dc{< 5&c0'85-Y4K".encode()))
 krbtgt_cipher = _enctype_table[18]
 temp = krbtgt_cipher.decrypt(krbtgt_key, 3, cipher_data)
-print(temp.hex())
+print(as_hex(temp))
 krbtgt_enc = EncTGSRepPart.load(temp).native
 pprint.pprint(krbtgt_enc)
 
@@ -23,6 +23,6 @@ session_cipher = _enctype_table[18]
 
 cipherText = bytes.fromhex('351505edf3ecbb9fcf59299f28d23fd514e50b884f729ed43e6abf12451448e1e6db7a6da5dec0a39202eaa69b8be5ef4529e2006021fde7a1239d53904c9e06cdab9ba02fcc6b369d2421cdc21e7ee691c2958e3117159c5f572ba86fdd2208207fd15acd036eb11b18bf3654e344b5322463b6bfca45ee3c6e2f57c560fd8d70450a59e6a9b5499b48953017644f99282979c5220a1f6bc76ef9cdc5153ddd133b2541dee35f7c8e4607dd192eabbf')
 temp = session_cipher.decrypt(session_key, 7, cipherText)
-print(temp.hex())
+print(as_hex(temp))
 auth = Authenticator.load(temp).native
 pprint.pprint(auth)
